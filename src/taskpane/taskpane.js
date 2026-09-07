@@ -12,6 +12,8 @@ var PREFIX_REGEX = /^\[C[1-4]\]\s*/;
 var TAG_START = "<!--CRITICITE-TAG-START-->";
 var TAG_END = "<!--CRITICITE-TAG-END-->";
 var TAG_REGEX = /<!--CRITICITE-TAG-START-->[\s\S]*?<!--CRITICITE-TAG-END-->/g;
+// OWA supprime les commentaires HTML : reconnaissance de secours par le contenu
+var TAG_FALLBACK_REGEX = /<div[^>]*>\s*<span[^>]*>\s*C[1-4]\s*-\s*(?:Strictement confidentiel|Confidentiel|Interne|Public)\s*<\/span>\s*<\/div>/g;
 
 var LEVELS = {
   C1: { label: "Strictement confidentiel", color: "#7f1d1d", bg: "#fde8e8", border: "#dc2626", sensitivity: "Confidential" },
@@ -82,18 +84,18 @@ function applyLevel(btn) {
 
         var html = bodyRes.value || "";
         var tag = buildTag(level);
-        var newHtml;
 
-        if (TAG_REGEX.test(html)) {
-          newHtml = html.replace(TAG_REGEX, tag);
+        // Supprimer TOUTES les étiquettes existantes (avec ou sans marqueurs,
+        // OWA supprimant les commentaires HTML), puis insérer la nouvelle.
+        var cleaned = html.replace(TAG_REGEX, "").replace(TAG_FALLBACK_REGEX, "");
+
+        var newHtml;
+        var bodyTag = cleaned.match(/<body[^>]*>/i);
+        if (bodyTag) {
+          var idx = cleaned.indexOf(bodyTag[0]) + bodyTag[0].length;
+          newHtml = cleaned.slice(0, idx) + tag + cleaned.slice(idx);
         } else {
-          var bodyTag = html.match(/<body[^>]*>/i);
-          if (bodyTag) {
-            var idx = html.indexOf(bodyTag[0]) + bodyTag[0].length;
-            newHtml = html.slice(0, idx) + tag + html.slice(idx);
-          } else {
-            newHtml = tag + html;
-          }
+          newHtml = tag + cleaned;
         }
 
         item.body.setAsync(newHtml, { coercionType: Office.CoercionType.Html }, function (bodySetRes) {
