@@ -1,11 +1,10 @@
 /* global Office */
 
 // Compatible API Mailbox 1.5 (Exchange 2019 on-premises) — syntaxe ES5
-// finale : au lieu du bandeau pleine largeur, insère une étiquette discrète
-// alignée à droite en tête du corps (style "C2 - Important"), et positionne
-// la sensibilité native Outlook (Confidentiel, sauf C4 Public) via EWS, ce qui
-// fait apparaître "Critère de diffusion : Confidentiel" dans les réponses
-// et transferts. Nécessite <Permissions>ReadWriteMailbox</Permissions>.
+// Version de production : préfixe d'objet [C1]-[C4] + étiquette centrée
+// colorée en tête du corps. (Le module de sensibilité native via EWS a été
+// retiré : la plateforme hébergée renvoie une réponse vide aux requêtes EWS
+// des compléments — réactivable si l'opérateur débloque EWS.)
 
 var PROP_NAME = "criticite";
 var PREFIX_REGEX = /^\[C[1-4]\]\s*/;
@@ -100,11 +99,7 @@ function applyLevel(btn) {
 
         item.body.setAsync(newHtml, { coercionType: Office.CoercionType.Html }, function (bodySetRes) {
           if (bodySetRes.status === Office.AsyncResultStatus.Succeeded) {
-            // 3. Sensibilité native via EWS (non bloquant)
-            setSensitivity(level, function (ok, detail) {
-              finish(btn, level, ok ? null :
-                "Niveau appliqu\u00e9. Sensibilit\u00e9 non positionn\u00e9e [" + (detail || "?") + "]");
-            });
+            finish(btn, level, null);
           } else {
             finish(btn, level, "Objet pr\u00e9fix\u00e9, mais \u00e9tiquette non ins\u00e9r\u00e9e.");
           }
@@ -112,69 +107,6 @@ function applyLevel(btn) {
       });
     });
   });
-}
-
-// Positionne la propriété Sensibilité du brouillon via EWS.
-// Fait apparaître "Critère de diffusion : Confidentiel" dans les
-// réponses/transferts et le bandeau de lecture Outlook.
-function setSensitivity(level, callback) {
-  var sensitivity = LEVELS[level].sensitivity;
-  var item = Office.context.mailbox.item;
-
-  try {
-    // Il faut d'abord sauvegarder le brouillon pour obtenir son ItemId
-    item.saveAsync(function (saveRes) {
-      if (saveRes.status !== Office.AsyncResultStatus.Succeeded || !saveRes.value) {
-        var smsg = (saveRes.error && saveRes.error.message) ? saveRes.error.message : "pas d'ItemId";
-        callback(false, "saveAsync: " + smsg);
-        return;
-      }
-      var itemId = saveRes.value;
-
-      var ews =
-        '<?xml version="1.0" encoding="utf-8"?>' +
-        '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" ' +
-        'xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types" ' +
-        'xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages">' +
-        '<soap:Header><t:RequestServerVersion Version="Exchange2013" /></soap:Header>' +
-        '<soap:Body>' +
-        '<m:UpdateItem MessageDisposition="SaveOnly" ConflictResolution="AlwaysOverwrite">' +
-        '<m:ItemChanges><t:ItemChange>' +
-        '<t:ItemId Id="' + itemId + '" />' +
-        '<t:Updates><t:SetItemField>' +
-        '<t:FieldURI FieldURI="item:Sensitivity" />' +
-        '<t:Message><t:Sensitivity>' + sensitivity + '</t:Sensitivity></t:Message>' +
-        '</t:SetItemField></t:Updates>' +
-        '</t:ItemChange></m:ItemChanges>' +
-        '</m:UpdateItem>' +
-        '</soap:Body></soap:Envelope>';
-
-      Office.context.mailbox.makeEwsRequestAsync(ews, function (ewsRes) {
-        if (ewsRes.status !== Office.AsyncResultStatus.Succeeded) {
-          var msg = (ewsRes.error && ewsRes.error.message) ? ewsRes.error.message : "appel refus\u00e9";
-          callback(false, "makeEwsRequestAsync: " + msg);
-          return;
-        }
-        var resp = ewsRes.value || "";
-        if (resp.indexOf("NoError") !== -1) {
-          callback(true, null);
-          return;
-        }
-        var code = resp.match(/<[^>]*ResponseCode[^>]*>([^<]+)</);
-        var txt = resp.match(/<[^>]*MessageText[^>]*>([^<]+)</);
-        if (code) {
-          callback(false, "EWS: " + code[1] + (txt ? " \u2014 " + txt[1] : ""));
-        } else {
-          // Réponse sans code standard : montrer un extrait brut pour diagnostic
-          var snippet = resp === "" ? "(r\u00e9ponse vide)" :
-            resp.substring(0, 200).replace(/</g, "\u2039").replace(/>/g, "\u203a");
-          callback(false, "EWS brut [" + resp.length + " car.]: " + snippet);
-        }
-      });
-    });
-  } catch (e) {
-    callback(false, "exception: " + (e && e.message ? e.message : e));
-  }
 }
 
 function finish(btn, level, warning) {
