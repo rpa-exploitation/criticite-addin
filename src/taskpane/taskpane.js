@@ -162,7 +162,14 @@ function setSensitivity(level, callback) {
         }
         var code = resp.match(/<[^>]*ResponseCode[^>]*>([^<]+)</);
         var txt = resp.match(/<[^>]*MessageText[^>]*>([^<]+)</);
-        callback(false, "EWS: " + (code ? code[1] : "?") + (txt ? " \u2014 " + txt[1] : ""));
+        if (code) {
+          callback(false, "EWS: " + code[1] + (txt ? " \u2014 " + txt[1] : ""));
+        } else {
+          // Réponse sans code standard : montrer un extrait brut pour diagnostic
+          var snippet = resp === "" ? "(r\u00e9ponse vide)" :
+            resp.substring(0, 200).replace(/</g, "\u2039").replace(/>/g, "\u203a");
+          callback(false, "EWS brut [" + resp.length + " car.]: " + snippet);
+        }
       });
     });
   } catch (e) {
